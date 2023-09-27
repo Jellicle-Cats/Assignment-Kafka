@@ -1,50 +1,41 @@
 #!/usr/bin/env node
 
-var amqp = require('amqplib/callback_api')
+const kafka = require('kafka-node');
+const Consumer = kafka.Consumer;
+const client = new kafka.KafkaClient({ kafkaHost: 'localhost:9092' });
+const consumer = new Consumer(
+    client,
+    [],
+    { autoCommit: false }
+);
 const { basename } = require('path')
 
-amqp.connect('amqp://localhost', function (error0, connection) {
-	if (error0) {
-		throw error0
+
+const topics = process.argv.slice(2);
+if (topics.length < 1) {
+  console.warn('Usage: %s [Italian] [Japanese] [Chinese] [Thai] [Indian]', basename(process.argv[1]));
+  process.exit(1);
+}
+
+consumer.addTopics(topics.map(topic => ({ topic: topic })), (error, added) => {
+	if (error) {
+	  console.error('Error adding topics to Kafka consumer:', error);
+	  process.exit(1);
 	}
-	connection.createChannel(function (error1, channel) {
-		if (error1) {
-			throw error1
-		}
-		var exchange = 'order_queue'
-		const bindingKeys = process.argv.slice(2)
-		if (bindingKeys.length < 1) {
-			console.warn('Usage: %s [Italian] [Japanese] [Chinese] [Thai] [Indian]', basename(process.argv[1]))
-			process.exit(1)
-		}
+	console.log('Subscribed to Kafka topics:', added);
+});
 
-		channel.assertExchange(exchange, 'direct', { durable: true })
-		const { queue } = channel.assertQueue('', { exclusive: true })
-
-		Promise.all(
-			bindingKeys.map((bindingKey) => {
-				channel.bindQueue(queue, exchange, bindingKey)
-			})
-		)
-
-		channel.prefetch(1)
-		console.log(' [*] Waiting for messages in %s with %s keys. To exit press CTRL+C', exchange, bindingKeys)
-		channel.consume(
-			queue,
-			function (msg) {
-				var secs = msg.content.toString().split('.').length - 1
-
-				console.log(' [x] %s: Received at', msg.fields.routingKey, new Date())
-				console.log(JSON.parse(msg.content))
-
-				setTimeout(function () {
-					console.log(' [x] Done')
-					channel.ack(msg)
-				}, secs * 1000)
-			},
-			{
-				noAck: false
-			}
-		)
-	})
-})
+consumer.on('message', function (message) {
+	const secs = message.value.split('.').length - 1;
+  
+	console.log(` [x] ${message.topic}: Received at`, new Date());
+	console.log(JSON.parse(message.value));
+  
+	setTimeout(function () {
+	  console.log(' [x] Done');
+	}, secs * 1000);
+  });
+  
+consumer.on('error', function (error) {
+	console.error('Kafka consumer error:', error);
+});

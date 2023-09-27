@@ -22,37 +22,32 @@ app.get('/', (req, res) => {
 	})
 })
 
-var amqp = require('amqplib/callback_api')
+const kafka = require('kafka-node')
+const kafkaClient = new kafka.KafkaClient({ kafkaHost: 'localhost:9092' })
+const Producer = kafka.Producer
+const producer = new Producer(kafkaClient)
 
 app.post('/placeorder', (req, res) => {
-	//const updateMenuItem = {
 	var orderItem = {
 		id: req.body.id,
 		name: req.body.name,
 		quantity: req.body.quantity
 	}
-
-	// Send the order msg to RabbitMQ
-	amqp.connect('amqp://localhost', function (error0, connection) {
-		if (error0) {
-			throw error0
+	const topic = req.body.nation;
+	const payload = {
+		topic: topic,
+		messages: JSON.stringify(orderItem),
+		partition:0
+	};
+	producer.send([payload], (error, result) => {
+		if (error) {
+		  console.error('Error sending order to Kafka:', error);
+		  res.status(500).json({ error: 'Error placing the order' });
+		} else {
+		  console.log(' [x] %s: Sent at', topic, new Date())
+		  console.log(orderItem)
 		}
-		connection.createChannel(function (error1, channel) {
-			if (error1) {
-				throw error1
-			}
-			var routingKey = req.body.nation
-			var exchange = 'order_queue'
-			channel.assertExchange(exchange, 'direct', { durable: true })
-			// for (let i = 0; i < 10000; i++) {
-			channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(orderItem)), {
-				persistent: true
-			})
-			console.log(' [x] %s: Sent at', routingKey, new Date())
-			console.log(orderItem)
-			// }
-		})
-	})
+	});
 })
 //console.log("update Item %s %s %d",updateMenuItem.id, req.body.name, req.body.quantity);
 
